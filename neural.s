@@ -1,190 +1,237 @@
-	AREA appcode,CODE,READONLY
-      export __main	 
-      IMPORT printMsg		 
-      IMPORT Printtruthtable	 		 
-	  ENTRY 
-__main  function	
-	      VLDR.F32 s0 , =1 ;X0 DATA
-          VLDR.F32 s1 , =1 ;X1 DATA
-          VLDR.F32 s2 , =1 ;X2 DATA	
-		  MOV R9 ,#0		
-          MOV R7 ,#0 
-          MOV R12,#0		  
-startagain 		   ADR.W r0 , BranchTable_Byte
-		           MOV r1 , R12                  
-		           TBB [r0 , r1 ]
-NAND_LOGIC         VLDR.F32 s28 ,=0.6 	;WEIGHT W1   
-		           VLDR.F32 s29 ,=-0.8  ;WEIGHT W2   
-                   VLDR.F32	s30 ,=-0.8 	;WEIGHT W3
-                   VLDR.F32 s31 ,=0.3   ;BIAS   
-                   B  X_CALCULATION
-NOR_LOGIC          VLDR.F32 s28 ,=0.5 	;WEIGHT W1   
-		           VLDR.F32 s29 ,=-0.7  ;WEIGHT W2   
-                   VLDR.F32	s30 ,=-0.7 	;WEIGHT W3
-                   VLDR.F32 s31 ,=0.1   ;BIAS   
-                   B  X_CALCULATION
-AND_LOGIC         VLDR.F32 s28 ,=-0.1 	;WEIGHT W1   
-		          VLDR.F32 s29 ,=0.2  ;WEIGHT W2   
-                  VLDR.F32	s30 ,=0.2 	;WEIGHT W3
-                  VLDR.F32 s31 ,=-0.2   ;BIAS   
-                   B  X_CALCULATION
-OR_LOGIC          VLDR.F32 s28 ,=-0.1	;WEIGHT W1   
-		          VLDR.F32 s29 ,=0.7  ;WEIGHT W2   
-                  VLDR.F32	s30 ,=0.7 	;WEIGHT W3
-                  VLDR.F32 s31 ,=-0.1  ;BIAS				  
-                   B  X_CALCULATION
-XOR_LOGIC         VLDR.F32 s28 ,=-5 	;WEIGHT W1   
-		          VLDR.F32 s29 ,=20  ;WEIGHT W2   
-                  VLDR.F32	s30 ,=10 	;WEIGHT W3
-                  VLDR.F32 s31 ,=1   ;BIAS   
-                   B  X_CALCULATION
-XNOR_LOGIC        VLDR.F32 s28 ,=-5 	;WEIGHT W1   
-		          VLDR.F32 s29 ,=20  ;WEIGHT W2   
-                  VLDR.F32	s30 ,=10 	;WEIGHT W3
-                  VLDR.F32 s31 ,=1   ;BIAS   
-                   B  X_CALCULATION
-NOT_LOGIC         VLDR.F32 s28 ,=0.5 	;WEIGHT W1   
-		          VLDR.F32 s29 ,=-0.7  ;WEIGHT W2   
-                  VLDR.F32	s30 ,=0 	;WEIGHT W3
-                  VLDR.F32 s31 ,=0.1   ;BIAS   
-                   B  X_CALCULATION
-		  
-X_CALCULATION		  VMUL.F32  s14 , s0 ,s28  
-                      VADD.F32  s15  , s15 ,s14 ;S15 WILL HAVE SUM OF WEIGHTS
-		              VMUL.F32  s14 , s1 ,s29  
-					  VADD.F32  s15  , s15 ,s14
-					  VMUL.F32  s14 , s2 ,s30
-					  VADD.F32  s15  , s15 ,s14
-                      VADD.F32  s15 , s15,s31
-                      B SIGMOID					  
-BranchTable_Byte		  
-    DCB   0	
-	DCB   ((XNOR_LOGIC-NAND_LOGIC)/2)	
-    DCB   ((NOR_LOGIC-NAND_LOGIC)/2)
-	DCB   ((OR_LOGIC-NAND_LOGIC)/2)	
-	DCB   ((AND_LOGIC-NAND_LOGIC)/2)	
-	DCB   ((XOR_LOGIC-NAND_LOGIC)/2)
-	DCB   ((NOT_LOGIC-NAND_LOGIC)/2)
-	; In Sigmoid, the same functions as exponential are performed with addition of 1 and inverse operation
-	; Flow is multiplication, division, addition and storing result when no overflow or underflow condition occurs
-SIGMOID	      MOV r0 , #0x20000000  	
-              VMOV.F32 s1 , s15  
-	          MOV  r3 ,#0x3f800000   ;Taking number 1 in IEEE.
-	          STR  r3 , [r0] 
-			  VLDR s0 ,[r0]   ;s0 will hold changing value of varying x in series  and s29 is a temporary register for it
-			  VLDR s4 ,[r0]
-			  VLDR s5 ,[r0]
-			  VLDR s6 ,[r0]
-			  VLDR s7 ,[r0]
-              VLDR s31 ,[r0]     
-			  VLDR s30 ,[r0]
-			  VLDR s29 ,[r0]
-			  VLDR s28 ,[r0]
-              B   SERIES			  
-			  
-CHECK_SERIES_MULTIPLICATION			  VMUL.F32 s29 , s0 ,s1
-			                          VMRS r1 , FPSCR
-			                          AND  r1 ,  r1 , #28
-			                          CMP  r1 , #17	
-                                                  IT LT									  
-			                          BLT  FLOW1	
-									  B  STOP
-CHECK_SERIES_SUM_VALIDATION           VADD.F32 s31 , s5 , s3
-                                      VMRS r1 , FPSCR          ;Storing FPSCR to R1 
-									  AND  r1 ,  r1 , #28       
-									  CMP  r1 , #17	       
-                                      IT  LT									  
-									  BLT  SERIES	         
-									  B  STOP
-CHECK_DIVISION_VALIDATION			  VDIV.F32	s30 , s0 , s4					  
-									  VMRS r1 , FPSCR
-									  AND  r1 ,  r1 , #28
-			                          CMP  r1 , #17	
-                                      IT  LT									  
-			                          BLT  FLOW3	
-									  B  STOP
-									  
-CHECK_SERIES_FACTORIAL_VALIDATION     VMUL.F32   s28 , s4 ,s6
-                                      VMRS r1 , FPSCR
-									  VADD.F32   s6 , s6 , s7
-									  AND  r1 ,  r1 , #28
-									  CMP  r1 , #17	
-                                      IT  LT									  
-									  BLT  FLOW2	
-									  B  STOP						
+	 AREA     appcode, CODE, READONLY
+     EXPORT __main
+	 IMPORT printMsg1
+     ENTRY 
+__main  FUNCTION
+	
+; SIMPLE NEURAL NETWORK IMPLEMENTATION	
+; FINAL OUTPUT IS STORED IN S8
 
-SERIES		 VMOV.F32	  s3 ,s31                 
-
-				B CHECK_SERIES_MULTIPLICATION		 
-FLOW1		VMOV.F32    s0 , s29                    
-
-                B CHECK_SERIES_FACTORIAL_VALIDATION ; 
+	 VLDR.F32 S1,=1 ;S1 INITIALISED TO 1
+	 VLDR.F32 S23,=0.5 ;S23 INITIALISED TO 0.5, USED AS THRESHOLD
+	 MOV R4, #1	;TO INCREMENT
+	 MOV R5, #0
+	 MOV R7, #0		;R7 is used to know which logic you want to implement
+	 BAL Switch
+	 
+Switch					; switch case 
+		CMP R7,#0		;For AND Operation 
+		BEQ logic_AND
+		CMP R7,#1		;For OR Operation
+		BEQ logic_OR
+		CMP R7,#2		;For NOT Operation
+		BEQ logic_NOT
+		CMP R7,#3		;For NAND Operation
+		BEQ logic_NAND
+		CMP R7,#4		;For NOR Operation
+		BEQ logic_NOR
+		CMP R7,#5       ;For XOR Operation
+		BEQ logic_XOR
+		CMP R7,#6		;For XNOR Operation
+		BEQ logic_XNOR
+	
+logic_AND
+		VLDR.F32 S14,=-0.1  
+		VLDR.F32 S11,=0.2
+		VLDR.F32 S12,=0.2 
+		VLDR.F32 S13,=-0.2
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
 		
-FLOW2		VMOV.F32     s4  , s28    
-
-                B  CHECK_DIVISION_VALIDATION
+logic_OR
+		VLDR.F32 S14,=-0.1 
+		VLDR.F32 S11,=0.7 
+		VLDR.F32 S12,=0.7 
+		VLDR.F32 S13,=-0.1 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
 		
-FLOW3		 VMOV.F32      s5  , s30                  
-
-				B  CHECK_SERIES_SUM_VALIDATION
+logic_NOT
+		VLDR.F32 S14,=0.5 
+		VLDR.F32 S11,=-0.7 
+		VLDR.F32 S12,=0 
+		VLDR.F32 S13,=0.1 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
 		
-STOP		   VLDR s0 ,[r0]  ; stop program
-               VDIV.F32 s3 , s0 ,s3
-			   VADD.F32 s3 ,s3,s0 
-			   VDIV.F32 s3 , s0 , s3
-               B     OUTPUT	
+logic_NAND
+		VLDR.F32 S14,=0.6 
+		VLDR.F32 S11,=-0.8 
+		VLDR.F32 S12,=-0.8 
+		VLDR.F32 S13,=0.3 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
+		
+logic_NOR
+		VLDR.F32 S14,=0.5 
+		VLDR.F32 S11,=-0.7 
+		VLDR.F32 S12,=-0.7 
+		VLDR.F32 S13,=0.1 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
+		
+logic_XOR		
+		VLDR.F32 S14,=-5 
+		VLDR.F32 S11,=20 
+		VLDR.F32 S12,=10 
+		VLDR.F32 S13,=1 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3
 
+logic_XNOR
+		VLDR.F32 S14,=-5 
+		VLDR.F32 S11,=20 
+		VLDR.F32 S12,=10 
+		VLDR.F32 S13,=1 
+		CMP R5, #0
+		BEQ NEXT
+		CMP R5, #1
+		BEQ NEXT1
+		CMP R5, #2
+		BEQ NEXT2
+		CMP R5, #3
+		BEQ NEXT3	
+	
+NEXT    ; INPUT VALUE IS LOADED i.e X1,X2,X3
+		VLDR.F32 S15,=1 ; X1
+		VLDR.F32 S16,=0 ; X2
+		VLDR.F32 S17,=0 ; X3
+		B OPERATION
+		
+NEXT1    ; INPUT VALUE IS LOADED i.e X1,X2,X3
+		VLDR.F32 S15,=1 ; X1
+		VLDR.F32 S16,=0 ; X2
+		VLDR.F32 S17,=1 ; X3
+		B OPERATION		
+		
+NEXT2    ; INPUT VALUE IS LOADED i.e X1,X2,X3
+		VLDR.F32 S15,=1 ; X1
+		VLDR.F32 S16,=1 ; X2
+		VLDR.F32 S17,=0 ; X3
+		B OPERATION
+		
+NEXT3    ; INPUT VALUE IS LOADED i.e X1,X2,X3
+		VLDR.F32 S15,=1 ; X1
+		VLDR.F32 S16,=1 ; X2
+		VLDR.F32 S17,=1 ; X3
+		B OPERATION
+	
+OPERATION
+		VMUL.F32 S18,S15,S14 
+		VMUL.F32 S19,S11,S16 
+		VMUL.F32 S20,S12,S17 
+		VADD.F32 S21,S19,S18 
+		VADD.F32 S21,S21,S20 
+		VADD.F32 S21,S21,S13 
+		VMOV.F32 S10, S21    
+		BL EXP		          ; Calling of e^x subroutine
+		
+		VADD.F S22,S4,S1 ; (1+e^x)
+		VDIV.F S6,S4,S22 ; Value of Sigmoid function(e^x/(1+e^x)) is stored in S6
+		VMOV.F S8,S6     
+		VCMP.F S6,S23
+		vmrs APSR_nzcv,FPSCR
+		BLT LOGIC0
+		BGT LOGIC1
+FINAL
+        MOV R1,R7
+	    VCVT.U32.F32 S16,S16
+	    VMOV R2,S16
+	    VCVT.U32.F32 S17,S17
+	    VMOV R3,S17 	    
+		BL printMsg1  ; Calling of print function
+		ADD R5,R5,R4
+		CMP R5,#4
+		BNE Switch
+		MOV R5, #0
+		ADD R7,R7,R4
+		CMP R7,#5
+		BNE Switch
+		BEQ STOP
+		
+		
+LOGIC0 LDR R0,= 0x00000000  
+       B FINAL
+	   ;BL printMsg1
+	   
+	   
+LOGIC1 LDR R0,= 0x00000001
+       B FINAL
+; e^x IMPLEMENTATION STARTED
+EXP	
+	   VMOV.F S7,S10
+	   VMOV.F S9,S10
+	   LDR r8,= 0x00000001
+       
+       VMOV.F S0,S10
+	   ;VCVT.F32.U32 S0,S0
+	   LDR r1,= 0x00000030 ; No of iteration in r1	   
+	   LDR r2,= 0x00000001 ; For factorial 
+	   VLDR.F S4,= 1      ; For storing final result
+       VLDR.F S5,= 1 ; For storing the result of Factorial
+	   
+loop     
+       VMOV.F S7,S9
+       CMP r8,r2
+	   BNE pow
+loop2
+       VMOV.F S0,S7
+       VDIV.F S3,S0,S5
+	   VADD.F S4,S4,S3
+	   LDR r8,= 0x00000001 
+	   ADD r2,#0x00000001
+	   VMOV.F S2,r2
+	   VCVT.F32.U32 S2,S2
+	   VMUL.F S5,S5,S2 
+	   CMP r2,r1
+       BNE loop
+       BX lr
+	  
 
-OUTPUT     VLDR.F32 s16 , =0.5
-		   MOV R5 ,#0X20000000
-		   VSTR S3 ,[R5]
-		   LDR R0 ,[R5]
-		   BL printMsg
-           VCMP.F32     s3 , s16  
-           VMRS r1 , FPSCR                    ;output is kept  in r0 .LOGIC LSL AND CMP ARE APPLIED ON FPSR FLAGS WHOOSE VALUE IS IN R1
-           MOV r2 , #1
-		   LSL r2 , r2 ,#31
-		   AND r1 , r1, r2
-		   CMP r1 , #0
-		   ITE  HI
-		   MOVHI r0 , #0
-		   MOVLS r0 , #1
-           LSL R7 , R7 ,#1
-		   ORR R7 , R7 ,R0
-		  ADR.W r8 , Table_Byte		  
-		  TBB [r8 , r9 ]		  		  
-input2    VLDR.F32 s0 , =1 ;X0 DATA
-          VLDR.F32 s1 , =0 ;X1 DATA
-          VLDR.F32 s2 , =1 ;X2 DATA
-          ADD r9 , r9 , #1                   		  
-		  B startagain
-		  
-input3    VLDR.F32 s0 , =1 ;X0 DATA
-          VLDR.F32 s1 , =1 ;X1 DATA
-          VLDR.F32 s2 , =0 ;X2 DATA		  
-		  ADD r9 , r9 , #1                   
-		  B startagain
-		  
-input4    VLDR.F32 s0 , =1 ;X0 DATA
-          VLDR.F32 s1 , =1 ;X1 DATA
-          VLDR.F32 s2 , =1 ;X2 DATA
-		  ADD r9 , r9 , #1                  
-          B startagain
-
-
-stop            MOV R0 , R7
-                MOV R7 ,#0	
-                BL Printtruthtable
-				CMP R12 ,#6
-				IT HI
-				BHI stop1
-				ADD R12 ,R12 ,#1
-				B startagain
-stop1           B   stop1	
-Table_Byte		  
-    DCB   0		  
-    DCB   ((input3-input2)/2)	
-	DCB   ((input4-input2)/2)	
-	DCB   ((stop-input2)/2)   
-        endfunc
-      end
+      ; THIS LOOP FIND OUT X^n TERM
+pow     
+       VMUL.F S7,S7,S9  
+	   ADD r8,#0x00000001
+	   CMP r8,r2
+	   BNE pow
+	   BEQ loop2
+	   
+STOP B STOP ; stop program
+     ENDFUNC
+     END
